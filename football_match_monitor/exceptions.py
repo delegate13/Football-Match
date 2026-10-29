@@ -1,14 +1,16 @@
+"""Named exception types let callers handle expected failures consistently."""
+
 class MonitorError(Exception):
-    """Base exception for expected monitor failures."""
+    """Base class for expected errors that the command line can report cleanly."""
 
 
 class ConfigurationError(MonitorError):
-    """Raised when the external configuration is invalid."""
+    """Raised when config.json is missing, malformed, or contains invalid values."""
 
 
 class ESPNAPIError(MonitorError):
-    """Raised when ESPN cannot provide a valid scoreboard response."""
+    """Raised when an ESPN request and any usable saved response both fail."""
 
 
 class DataValidationError(MonitorError):
-    """Raised when scoreboard data does not match the expected structure."""
+    """Raised when saved or downloaded data has an unexpected structure."""

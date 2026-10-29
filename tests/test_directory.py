@@ -1,3 +1,5 @@
+"""Offline tests for ESPN team directories, local caching, and performance totals."""
+
 import json
 from datetime import date
 from pathlib import Path
@@ -18,6 +20,7 @@ LEAGUE = League("eng.1", "Premier League")
 
 @pytest.fixture
 def directory_config(tmp_path):
+    """Provide an isolated cache folder and small request limits for each test."""
     return SimpleNamespace(
         api_base_url="https://example.test/soccer",
         api_cache_dir=str(tmp_path / "cache"),
@@ -27,6 +30,7 @@ def directory_config(tmp_path):
 
 
 def test_get_teams_normalizes_and_caches_complete_payload(directory_config, monkeypatch):
+    """A live team response is simplified for the UI and saved to disk."""
     from football_match_monitor import directory
 
     payload = {
@@ -44,13 +48,18 @@ def test_get_teams_normalizes_and_caches_complete_payload(directory_config, monk
     }
 
     class Response:
+        """Act like the context-managed HTTP response returned by urlopen."""
+
         def __enter__(self):
+            """Allow the fake response to be used in a with statement."""
             return self
 
         def __exit__(self, *args):
+            """Match the context manager interface without additional cleanup."""
             return None
 
         def read(self):
+            """Return the fake ESPN response body as bytes."""
             return json.dumps(payload).encode()
 
     monkeypatch.setattr(directory, "urlopen", lambda *args, **kwargs: Response())
@@ -68,6 +77,7 @@ def test_get_teams_normalizes_and_caches_complete_payload(directory_config, monk
 
 
 def test_directory_uses_cached_payload_when_offline(directory_config, monkeypatch):
+    """A network failure should use the same league's previously saved teams."""
     from football_match_monitor import directory
     from urllib.error import URLError
 
@@ -82,6 +92,7 @@ def test_directory_uses_cached_payload_when_offline(directory_config, monkeypatc
     client._save_cache(cache_path, LEAGUE, "teams", payload)
 
     def offline(*args, **kwargs):
+        """Simulate a machine with no available network connection."""
         raise URLError("offline")
 
     monkeypatch.setattr(directory, "urlopen", offline)
@@ -89,10 +100,12 @@ def test_directory_uses_cached_payload_when_offline(directory_config, monkeypatc
 
 
 def test_directory_without_cache_reports_network_error(directory_config, monkeypatch):
+    """Without a live response or saved copy, the client reports a clear failure."""
     from football_match_monitor import directory
     from urllib.error import URLError
 
     def offline(*args, **kwargs):
+        """Simulate an offline request when there is no cached response."""
         raise URLError("offline")
 
     monkeypatch.setattr(directory, "urlopen", offline)
@@ -101,6 +114,7 @@ def test_directory_without_cache_reports_network_error(directory_config, monkeyp
 
 
 def test_team_performance_aggregates_results_and_recent_player_leaders():
+    """Season totals use all completed games; player stats come from match leaders."""
     team = {"id": "349", "name": "Bournemouth", "abbreviation": "BOU", "logo": None}
     schedule = [{
         "id": "7001",
@@ -150,6 +164,7 @@ def test_team_performance_aggregates_results_and_recent_player_leaders():
 
 
 def test_team_performance_only_includes_completed_matches_through_selected_date():
+    """The selected date excludes later completed results from every calculation."""
     team = {"id": "349", "name": "Bournemouth", "abbreviation": "BOU", "logo": None}
     past_match = {
         "id": "7001",

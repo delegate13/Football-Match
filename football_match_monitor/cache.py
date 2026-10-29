@@ -1,3 +1,5 @@
+"""Local storage for complete scoreboard responses used during offline outages."""
+
 import json
 import os
 import tempfile
@@ -10,12 +12,14 @@ from football_match_monitor.models import League
 
 
 class ScoreboardCache:
-    """Persists complete ESPN scoreboard responses by league and match date."""
+    """Save complete ESPN scoreboards locally so the monitor can work offline."""
 
     def __init__(self, directory: str):
+        """Remember the folder where per-league, per-day cache files belong."""
         self._directory = Path(directory)
 
     def load(self, league: League, match_date: date) -> Optional[dict]:
+        """Return a validated saved response, or None when no copy exists."""
         path = self._path(league, match_date)
         if not path.exists():
             return None
@@ -23,6 +27,7 @@ class ScoreboardCache:
             cached = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise DataValidationError(f"Unable to read ESPN cache file '{path}': {exc}") from exc
+        # Check both the requested key and nested events before trusting disk data.
         if (
             not isinstance(cached, dict)
             or cached.get("league_id") != league.id
@@ -34,8 +39,10 @@ class ScoreboardCache:
         return cached["data"]
 
     def save(self, league: League, match_date: date, payload: dict) -> None:
+        """Save the API response with metadata, replacing the file atomically."""
         path = self._path(league, match_date)
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Metadata makes cache contents self-describing and easier to validate.
         envelope = {
             "league_id": league.id,
             "league_name": league.name,
@@ -45,6 +52,7 @@ class ScoreboardCache:
         }
         temporary_path = None
         try:
+            # Write beside the destination so os.replace remains atomic.
             with tempfile.NamedTemporaryFile(
                 mode="w",
                 encoding="utf-8",
@@ -58,8 +66,10 @@ class ScoreboardCache:
                 temporary_file.write("\n")
             os.replace(temporary_path, path)
         finally:
+            # If writing failed, remove its incomplete temporary file.
             if temporary_path is not None and temporary_path.exists():
                 temporary_path.unlink()
 
     def _path(self, league: League, match_date: date) -> Path:
+        """Build a predictable cache filename for this league and calendar day."""
         return self._directory / f"{league.id}_{match_date.isoformat()}.json"

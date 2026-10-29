@@ -1,5 +1,8 @@
+// This file powers the website: it remembers choices, calls our API, and updates the page.
 (() => {
+  // A short helper makes it easier to find one element by its CSS selector.
   const $ = (selector) => document.querySelector(selector);
+  // Keep the current user choices and loaded data together in one place.
   const state = {
     report: null,
     leagues: [],
@@ -13,20 +16,25 @@
     playerQuery: "",
   };
   let toastTimer;
+  // Ignore older scoreboard responses if a newer date request finishes first.
   let dateRequestId = 0;
 
+  // Convert a Date object into the YYYY-MM-DD format used by date inputs and APIs.
   function dateKey(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
 
+  // Treat all API text as text, never as executable HTML inserted into the page.
   const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[char]);
 
+  // Build two-letter team initials for badges when no official logo is available.
   function initials(name) {
     return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   }
 
+  // Convert ESPN's timestamp to a local calendar date for date filtering.
   function localDateKey(value) {
     if (!value) return "";
     const parsed = new Date(value);
@@ -34,15 +42,18 @@
     return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
   }
 
+  // Display a date in a friendly style such as "Thu 29 Oct".
   function formatDate(date) {
     return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(date);
   }
 
+  // Parse an ISO date at midday to avoid daylight-saving midnight edge cases.
   function dateFromKey(value) {
     const [year, month, day] = value.split("-").map(Number);
     return new Date(year, month - 1, day, 12);
   }
 
+  // Start the whole website on today's date and synchronize all date controls.
   function initDates() {
     const today = new Date();
     today.setHours(12, 0, 0, 0);
@@ -50,6 +61,7 @@
     renderDates();
   }
 
+  // Draw the seven nearby date buttons and keep every date input in sync.
   function renderDates() {
     const selected = dateFromKey(state.selectedDate);
     const dates = [];
@@ -74,6 +86,7 @@
     });
   }
 
+  // Point the download buttons at the currently selected date and competitions.
   function updateDownloadLinks() {
     const enabled = state.selectedLeagueIds.size > 0;
     const params = new URLSearchParams({
@@ -89,6 +102,7 @@
     });
   }
 
+  // Show one page section and run its data-loading function when needed.
   function showView(name) {
     document.querySelectorAll(".view-panel").forEach((panel) => {
       panel.hidden = panel.id !== `${name}-view`;
@@ -101,6 +115,7 @@
     if (name === "performance") loadPerformanceTeams();
   }
 
+  // Fill a competition dropdown and optionally restore a preferred selection.
   function leagueOptions(select, preferredId = "") {
     select.innerHTML = state.leagues.map((league) =>
       `<option value="${escapeHtml(league.id)}">${escapeHtml(league.name)}</option>`
@@ -110,10 +125,12 @@
     }
   }
 
+  // Look up the selected dropdown value in the known competition list.
   function currentLeague(select) {
     return state.leagues.find((league) => league.id === select.value);
   }
 
+  // Fetch JSON and turn server error responses into readable JavaScript errors.
   async function getJson(url) {
     const response = await fetch(url);
     const result = await response.json();
@@ -121,6 +138,7 @@
     return result;
   }
 
+  // Render either the official team image or a text badge as a fallback.
   function teamLogo(team) {
     const badge = escapeHtml((team.abbreviation || team.name || "?").slice(0, 3).toUpperCase());
     return team.logo
@@ -128,6 +146,7 @@
       : `<span class="team-logo">${badge}</span>`;
   }
 
+  // Show a consistent error message and wire its retry button to the active view.
   function showDirectoryError(container, error) {
     container.innerHTML = `<div class="error-state"><strong>Could not load data</strong><span>${escapeHtml(error.message)}</span><button type="button" class="retry-directory">Try again</button></div>`;
     container.querySelector(".retry-directory").addEventListener("click", () => {
@@ -137,6 +156,7 @@
     });
   }
 
+  // Load all teams for the selected league and let a team open its performance.
   async function loadTeams() {
     const select = $("#teams-league");
     if (!select.value) leagueOptions(select, [...state.selectedLeagueIds][0]);
@@ -161,6 +181,7 @@
     }
   }
 
+  // Filter the already-loaded squad and draw each remaining player card.
   function renderPlayers() {
     const query = state.playerQuery.trim().toLocaleLowerCase();
     const players = state.players.filter((player) =>
@@ -173,6 +194,7 @@
     </article>`).join("") || `<div class="empty-state"><strong>No players found</strong><span>Try a different search or team.</span></div>`;
   }
 
+  // Load team choices first, then request rosters for the chosen league/team.
   async function loadPlayers() {
     const leagueSelect = $("#players-league");
     if (!leagueSelect.value) leagueOptions(leagueSelect, [...state.selectedLeagueIds][0]);
@@ -197,6 +219,7 @@
     }
   }
 
+  // Populate the team selector before a user can request team performance.
   async function loadPerformanceTeams() {
     const leagueSelect = $("#performance-league");
     if (!leagueSelect.value) leagueOptions(leagueSelect, [...state.selectedLeagueIds][0]);
@@ -222,6 +245,7 @@
     }
   }
 
+  // Turn performance JSON into stat cards, recent results, and leader rows.
   function renderPerformance(data) {
     const team = data.team;
     const form = data.recent_form || [];
@@ -259,6 +283,7 @@
       </div>`;
   }
 
+  // Request the selected team's results through the current date.
   async function loadPerformance() {
     const league = currentLeague($("#performance-league"));
     const teamId = $("#performance-team").value;
@@ -274,6 +299,7 @@
     }
   }
 
+  // Validate a date input, update shared state, and refresh the visible view.
   function selectDate(value) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || dateKey(dateFromKey(value)) !== value) return;
     state.selectedDate = value;
@@ -282,6 +308,7 @@
     else if (!$("#performance-view").hidden) loadPerformance();
   }
 
+  // Search and render the competition selector, retaining choices in this browser.
   function renderLeagues() {
     const search = $("#league-search").value.trim().toLocaleLowerCase();
     const visibleLeagues = state.leagues.filter((league) => league.name.toLocaleLowerCase().includes(search)
@@ -306,12 +333,14 @@
     });
   }
 
+  // Convert ESPN's short status codes into a label and matching CSS class.
   function statusLabel(match) {
     if (match.status === "in") return { label: "LIVE", css: "live" };
     if (match.status === "post") return { label: "FT", css: "finished" };
     return { label: match.status_detail || "UPCOMING", css: "upcoming" };
   }
 
+  // Show a live minute, full-time label, or scheduled kickoff time.
   function matchTime(match) {
     if (match.status === "in" && match.status_detail) return match.status_detail;
     if (match.status === "post") return "Full time";
@@ -319,6 +348,7 @@
     return Number.isNaN(parsed.getTime()) ? "Scheduled" : new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(parsed);
   }
 
+  // Build one match card; escape external names before placing them in HTML.
   function renderCard(match) {
     const status = statusLabel(match);
     const hasScore = match.home_score !== null && match.home_score !== undefined
@@ -338,6 +368,7 @@
     </article>`;
   }
 
+  // Apply date, league, status, and search filters before grouping match cards.
   function renderMatches() {
     if (!state.selectedLeagueIds.size) {
       $("#feed-title").textContent = "Choose your competitions";
@@ -354,6 +385,7 @@
       const queryMatches = !search || `${match.home_team} ${match.away_team} ${match.league_name}`.toLocaleLowerCase().includes(search);
       return dateMatches && leagueMatches && statusMatches && queryMatches;
     });
+    // Group competitions so matches from the same league appear together.
     const groups = new Map();
     matches.forEach((match) => {
       const id = match.league_id || "other";
@@ -370,6 +402,7 @@
       <div class="group-heading"><span class="group-mark">${escapeHtml(group.name.replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase())}</span><span class="group-name">${escapeHtml(group.name)}</span><span class="group-count">${group.matches.length} ${group.matches.length === 1 ? "match" : "matches"}</span></div>
       ${group.matches.map(renderCard).join("")}
     </section>`).join("");
+    // Favorite controls save their IDs locally and redraw the match list.
     $("#match-feed").querySelectorAll("[data-favorite]").forEach((button) => {
       button.addEventListener("click", () => {
         const id = button.dataset.favorite;
@@ -381,6 +414,7 @@
     });
   }
 
+  // Explain when displayed scoreboard data came from the offline cache.
   function updateTimestamp(timestamp, source = "live") {
     if (source === "local_cache") {
       $("#updated-at").textContent = "Includes saved offline data";
@@ -396,6 +430,7 @@
       : `Updated ${new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(parsed)}`;
   }
 
+  // Load competition names, restore valid saved selections, then load today's data.
   async function loadData() {
     try {
       const leagueResponse = await fetch("/api/leagues");
@@ -417,6 +452,7 @@
     }
   }
 
+  // Read the version from the server so the footer matches the installed code.
   async function loadVersion() {
     try {
       const result = await getJson("/api/version");
@@ -426,6 +462,7 @@
     }
   }
 
+  // Retrieve matches for the chosen day and ignore responses for stale dates.
   async function loadSelectedDate() {
     const requestId = ++dateRequestId;
     updateDownloadLinks();
@@ -456,6 +493,7 @@
     }
   }
 
+  // Display a temporary message without changing or replacing the current view.
   function showToast(message) {
     const toast = $("#toast");
     toast.textContent = message;
@@ -464,6 +502,7 @@
     toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 3200);
   }
 
+  // Ask the server to refresh ESPN data for the currently selected day/leagues.
   async function refreshScores() {
     if (!state.selectedLeagueIds.size) {
       showToast("Select at least one competition first.");
@@ -492,12 +531,14 @@
     }
   }
 
+  // Move the shared calendar selection by one day in either direction.
   function moveDate(direction) {
     const next = dateFromKey(state.selectedDate);
     next.setDate(next.getDate() + direction);
     selectDate(dateKey(next));
   }
 
+  // Connect page controls to the functions above, then load initial data.
   initDates();
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => showView(button.dataset.view));

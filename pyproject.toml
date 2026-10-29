@@ -1,17 +1,21 @@
 [build-system]
+# setuptools builds the installable wheel and reads the version from the package.
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
+# Project identity and supported Python versions.
 name = "football-match-monitor"
 description = "Configurable ESPN football fixture and result monitor"
 requires-python = ">=3.10"
 dynamic = ["version"]
 
 [project.optional-dependencies]
+# Install this extra to run the test suite.
 test = ["pytest>=7.0"]
 
 [project.scripts]
+# Commands created when the project is installed.
 football-match-monitor = "football_match_monitor.cli:main"
 football-match-monitor-web = "football_match_monitor.web:main"
 
@@ -19,6 +23,7 @@ football-match-monitor-web = "football_match_monitor.web:main"
 packages = ["football_match_monitor"]
 
 [tool.setuptools.package-data]
+# Include website files inside built packages so the local server can serve them.
 football_match_monitor = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js"]
 
 [tool.setuptools.dynamic]

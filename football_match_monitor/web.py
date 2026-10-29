@@ -1,6 +1,6 @@
+"""Local HTTP server that powers the football dashboard and its JSON APIs."""
+
 import argparse
-import csv
-import io
 import json
 import logging
 import mimetypes
@@ -19,11 +19,13 @@ from football_match_monitor.filters import filter_matches
 from football_match_monitor.logging_config import configure_logging
 from football_match_monitor.monitor import MatchMonitor
 from football_match_monitor.models import League
+from football_match_monitor.report_export import report_csv, report_pdf
 
 _WEB_DIR = Path(__file__).resolve().parent / "web_assets"
 
 
 def read_report(config) -> dict:
+    """Read the saved JSON report, or return an empty report for a new install."""
     report_path = Path(config.output_file)
     if not report_path.exists():
         return {
@@ -47,6 +49,7 @@ def read_report(config) -> dict:
 
 
 def parse_requested_date(query: str) -> date | None:
+    """Parse the optional YYYY-MM-DD query value and reject invalid dates."""
     value = parse_qs(query).get("date", [None])[0]
     if value is None:
         return None
@@ -60,12 +63,14 @@ def parse_requested_date(query: str) -> date | None:
 
 
 def parse_requested_leagues(query: str, config) -> tuple | None:
+    """Resolve comma-separated league IDs against the configured league allowlist."""
     params = parse_qs(query, keep_blank_values=True)
     if "leagues" not in params:
         return None
     requested_ids = params["leagues"][0].split(",")
     if not requested_ids or any(not league_id for league_id in requested_ids):
         raise ValueError("Select one or more configured leagues.")
+    # Never trust a browser-supplied league ID unless it exists in config.json.
     configured = {league.id: league for league in config.leagues}
     unknown = [league_id for league_id in requested_ids if league_id not in configured]
     if unknown:
@@ -74,13 +79,16 @@ def parse_requested_leagues(query: str, config) -> tuple | None:
 
 
 def fetch_date_report(config, match_date: date, client=None, leagues=None) -> dict:
+    """Fetch, filter, and serialize all selected leagues for one calendar day."""
     client = client or ESPNClient(config)
     leagues = config.leagues if leagues is None else leagues
+    # Parallelize network requests, but cap the number of active connections.
     with ThreadPoolExecutor(max_workers=config.max_concurrent_requests) as executor:
         results = executor.map(
             lambda league: client.get_matches(league, match_date),
             leagues,
         )
+        # A match ID is globally unique, so duplicates collapse to one report row.
         matches_by_id = {match.id: match for league_matches in results for match in league_matches}
     matches = filter_matches(list(matches_by_id.values()), config)
     return {
@@ -93,106 +101,8 @@ def fetch_date_report(config, match_date: date, client=None, leagues=None) -> di
     }
 
 
-def report_csv(report: dict) -> bytes:
-    output = io.StringIO(newline="")
-    writer = csv.writer(output)
-    writer.writerow((
-        "Date", "Competition", "Home team", "Home score", "Away team", "Away score",
-        "Status", "Status detail", "Venue", "Match ID",
-    ))
-    for match in report["matches"]:
-        writer.writerow((
-            match.get("date", ""),
-            match.get("league_name", ""),
-            match.get("home_team", ""),
-            match.get("home_score"),
-            match.get("away_team", ""),
-            match.get("away_score"),
-            match.get("status", ""),
-            match.get("status_detail", ""),
-            match.get("venue", ""),
-            match.get("id", ""),
-        ))
-    return output.getvalue().encode("utf-8-sig")
-
-
-def report_pdf(report: dict) -> bytes:
-    report_date = report.get("date_from") or report.get("date_to") or "All dates"
-    lines = [
-        "Touchline - Football Match Report",
-        f"Date: {report_date}    Matches: {len(report['matches'])}",
-        f"Generated: {report.get('generated_at') or 'Unknown'}",
-        "",
-    ]
-    for match in report["matches"]:
-        home_score = match.get("home_score")
-        away_score = match.get("away_score")
-        score = f"{home_score if home_score is not None else '-'} - {away_score if away_score is not None else '-'}"
-        lines.extend((
-            f"{match.get('league_name', 'Competition')} | {str(match.get('date', ''))[:16]}",
-            f"{match.get('home_team', 'Home')}  {score}  {match.get('away_team', 'Away')}",
-            f"{match.get('status_detail') or match.get('status', '')} | {match.get('venue') or 'Venue unavailable'}",
-            "",
-        ))
-    if not report["matches"]:
-        lines.append("No matches found for this report.")
-
-    encoded_lines = [_pdf_text(line) for line in lines]
-    pages = [encoded_lines[index:index + 48] for index in range(0, len(encoded_lines), 48)]
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids ["
-        + b" ".join(f"{4 + index * 2} 0 R".encode("ascii") for index in range(len(pages)))
-        + f"] /Count {len(pages)} >>".encode("ascii"),
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
-    ]
-    for index, page_lines in enumerate(pages):
-        page_id = 4 + index * 2
-        content_id = page_id + 1
-        commands = ["BT", "/F1 9 Tf", "40 750 Td", "12 TL"]
-        for line in page_lines:
-            commands.append(f"({_pdf_escape(line)}) Tj")
-            commands.append("T*")
-        commands.append("ET")
-        stream = "\n".join(commands).encode("cp1252")
-        objects.extend((
-            (
-                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-                f"/Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>"
-            ).encode("ascii"),
-            b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n"
-            + stream + b"\nendstream",
-        ))
-
-    pdf = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
-    offsets = [0]
-    for object_id, body in enumerate(objects, start=1):
-        offsets.append(len(pdf))
-        pdf.extend(f"{object_id} 0 obj\n".encode("ascii"))
-        pdf.extend(body)
-        pdf.extend(b"\nendobj\n")
-    xref_offset = len(pdf)
-    pdf.extend(f"xref\n0 {len(offsets)}\n".encode("ascii"))
-    pdf.extend(b"0000000000 65535 f \n")
-    for offset in offsets[1:]:
-        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
-    pdf.extend(
-        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\n"
-        f"startxref\n{xref_offset}\n%%EOF\n".encode("ascii")
-    )
-    return bytes(pdf)
-
-
-def _pdf_text(value: str) -> str:
-    cleaned = " ".join(str(value).split())
-    return cleaned.encode("cp1252", errors="replace").decode("cp1252")
-
-
-def _pdf_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
-
-
 def parse_requested_league(query: str, config) -> League:
+    """Require one league query value and return its configured League object."""
     params = parse_qs(query, keep_blank_values=True)
     league_ids = params.get("league", [])
     if len(league_ids) != 1 or not league_ids[0]:
@@ -204,10 +114,14 @@ def parse_requested_league(query: str, config) -> League:
 
 
 def create_handler(config):
+    """Create an HTTP handler whose routes all use this validated configuration."""
     class DashboardHandler(BaseHTTPRequestHandler):
+        """Answer browser requests using the supplied app configuration."""
+
         server_version = "FootballMatchMonitor/1.0"
 
         def do_GET(self):
+            """Route read-only page and API requests to their response handlers."""
             route = urlparse(self.path).path
             if route in {"/api/report.csv", "/api/report.pdf"}:
                 self._get_download(route, urlparse(self.path).query)
@@ -247,6 +161,7 @@ def create_handler(config):
                 self._send_json({"error": "Not found"}, status=404)
 
         def do_POST(self):
+            """Refresh and save a report for the requested date and leagues."""
             if urlparse(self.path).path != "/api/refresh":
                 self._send_json({"error": "Not found"}, status=404)
                 return
@@ -274,6 +189,7 @@ def create_handler(config):
             self._send_json(report)
 
         def _get_download(self, route: str, query: str) -> None:
+            """Generate a CSV or PDF download for the query's selected report."""
             try:
                 requested_date = parse_requested_date(query)
                 requested_leagues = parse_requested_leagues(query, config)
@@ -282,6 +198,7 @@ def create_handler(config):
                     if requested_date
                     else read_report(config)
                 )
+                # The URL extension selects a format and its browser download type.
                 if route.endswith(".csv"):
                     content = report_csv(report)
                     content_type = "text/csv; charset=utf-8"
@@ -295,6 +212,7 @@ def create_handler(config):
                 except ValueError:
                     report_date = date.today().isoformat()
                 filename = f"football-match-report-{report_date}.{extension}"
+                # Content-Disposition tells the browser to save rather than display.
                 self.send_response(200)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
@@ -312,6 +230,7 @@ def create_handler(config):
                 self._send_json({"error": str(exc)}, status=500)
 
         def _get_teams(self, query: str) -> None:
+            """Return teams for one configured league."""
             try:
                 league = parse_requested_league(query, config)
                 self._send_json(ESPNDirectoryClient(config).get_teams(league))
@@ -325,6 +244,7 @@ def create_handler(config):
                 self._send_json({"error": str(exc)}, status=502)
 
         def _get_players(self, query: str) -> None:
+            """Return roster entries for every team or one selected team."""
             try:
                 league = parse_requested_league(query, config)
                 params = parse_qs(query, keep_blank_values=True)
@@ -338,6 +258,7 @@ def create_handler(config):
                     if team_ids[0] not in selected_ids:
                         raise ValueError("Team does not belong to the selected league.")
                     teams = [team for team in teams if team["id"] == team_ids[0]]
+                # Fetch team rosters concurrently while respecting the request limit.
                 with ThreadPoolExecutor(max_workers=config.max_concurrent_requests) as executor:
                     rosters = executor.map(lambda team: client.get_roster(league, team["id"]), teams)
                     players = [
@@ -356,6 +277,7 @@ def create_handler(config):
                 self._send_json({"error": str(exc)}, status=502)
 
         def _get_performance(self, query: str) -> None:
+            """Validate a team selection and return its performance as of a date."""
             try:
                 league = parse_requested_league(query, config)
                 params = parse_qs(query, keep_blank_values=True)
@@ -385,8 +307,10 @@ def create_handler(config):
                 self._send_json({"error": str(exc)}, status=502)
 
         def _send_asset(self, route: str) -> None:
+            """Serve only known files from the packaged website asset directory."""
             asset_name = "index.html" if route == "/" else route.lstrip("/")
             asset = (_WEB_DIR / asset_name).resolve()
+            # Resolve paths before serving to prevent traversing outside web_assets.
             if asset.parent != _WEB_DIR.resolve() or not asset.is_file():
                 self._send_json({"error": "Not found"}, status=404)
                 return
@@ -396,6 +320,7 @@ def create_handler(config):
             self.send_header("Content-Type", f"{content_type}; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("X-Content-Type-Options", "nosniff")
+            # Restrict browser resource loading to this site and trusted image/font hosts.
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'self'; style-src 'self' https://fonts.googleapis.com; "
@@ -406,6 +331,7 @@ def create_handler(config):
             self.wfile.write(body)
 
         def _send_json(self, payload: object, status: int = 200) -> None:
+            """Serialize a response as UTF-8 JSON with conservative browser headers."""
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -416,6 +342,7 @@ def create_handler(config):
             self.wfile.write(body)
 
         def log_message(self, format_string: str, *args) -> None:
+            """Send standard HTTP access messages through the app's JSON logger."""
             logging.getLogger("football_match_monitor").info(
                 "Dashboard HTTP request: " + format_string % args,
                 extra={"event": "dashboard_http"},
@@ -425,6 +352,7 @@ def create_handler(config):
 
 
 def serve(config, host: str = "127.0.0.1", port: int = 8000) -> None:
+    """Run the threaded local website until the user presses Ctrl+C."""
     server = ThreadingHTTPServer((host, port), create_handler(config))
     server.daemon_threads = True
     logging.getLogger("football_match_monitor").info(
@@ -432,6 +360,7 @@ def serve(config, host: str = "127.0.0.1", port: int = 8000) -> None:
         extra={"event": "dashboard_started", "host": host, "port": server.server_port},
     )
     print(f"Football Match Monitor is available at http://{host}:{server.server_port}")
+    # Always close the listening socket on normal exit or keyboard interruption.
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -441,11 +370,13 @@ def serve(config, host: str = "127.0.0.1", port: int = 8000) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse website options, configure logging, and start the local server."""
     parser = argparse.ArgumentParser(description="Run the Football Match Monitor website.")
     parser.add_argument("--config", default="config.json", help="Path to the JSON configuration file.")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (defaults to localhost only).")
     parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000).")
     args = parser.parse_args(argv)
+    # Port zero is allowed so the operating system can choose an available port.
     if not 0 <= args.port <= 65535:
         parser.error("--port must be between 0 and 65535.")
     try:

@@ -1,3 +1,5 @@
+"""Tests for configuration, ESPN normalization, filtering, and report history."""
+
 import json
 from datetime import date
 from pathlib import Path
@@ -19,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture
 def config(tmp_path):
+    """Use valid project settings while isolating report and log files per test."""
     raw = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     raw.update({
         "leagues": [{"id": "eng.1", "name": "Premier League"}],
@@ -36,6 +39,7 @@ def config(tmp_path):
 
 
 def event(score="2"):
+    """Return one ESPN-shaped match event, with a configurable home score."""
     return {
         "id": "match-1",
         "name": "Liverpool vs Arsenal",
@@ -51,6 +55,7 @@ def event(score="2"):
 
 
 def test_load_config_rejects_bad_league_id(tmp_path):
+    """Unsafe path-like strings cannot be used as ESPN league identifiers."""
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps({"leagues": [{"id": "../other", "name": "Bad"}]}))
     with pytest.raises(ConfigurationError, match="Invalid ESPN league id"):
@@ -58,6 +63,7 @@ def test_load_config_rejects_bad_league_id(tmp_path):
 
 
 def test_default_config_contains_unique_league_catalog():
+    """The sample configuration has the expected unique league catalog and defaults."""
     config = load_config(str(ROOT / "config.json"))
     league_ids = [league.id for league in config.leagues]
     assert len(league_ids) == 82
@@ -67,6 +73,7 @@ def test_default_config_contains_unique_league_catalog():
 
 
 def test_parse_event_maps_teams_scores_and_status():
+    """Nested ESPN fields are converted to the app's normalized Match shape."""
     match = parse_event(event(), League("eng.1", "Premier League"))
     assert match.home_team == "Liverpool"
     assert match.away_team == "Arsenal"
@@ -75,11 +82,13 @@ def test_parse_event_maps_teams_scores_and_status():
 
 
 def test_parse_event_rejects_missing_competitors():
+    """An event without two teams is rejected rather than shown as a match."""
     with pytest.raises(DataValidationError, match="two competitors"):
         parse_event({"id": "bad", "competitions": [{"competitors": []}]}, League("eng.1", "Premier League"))
 
 
 def test_filter_matches_applies_status_and_team(config):
+    """Configured status and team filters are both applied."""
     matches = [
         parse_event(event(), League("eng.1", "Premier League")),
         parse_event({**event(), "id": "match-2", "competitions": [{
@@ -95,6 +104,7 @@ def test_filter_matches_applies_status_and_team(config):
 
 
 def test_monitor_writes_report_and_tracks_new_then_updated_match(config):
+    """First run records a new match; a changed score is recorded as an update."""
     client = Mock()
     client.get_matches.return_value = [parse_event(event(), config.leagues[0])]
     monitor = MatchMonitor(config, client)
@@ -111,6 +121,7 @@ def test_monitor_writes_report_and_tracks_new_then_updated_match(config):
 
 
 def test_monitor_can_refresh_only_the_selected_date(config):
+    """A one-day refresh asks ESPN for exactly the requested date."""
     client = Mock()
     client.get_matches.return_value = [parse_event(event(), config.leagues[0])]
     report = MatchMonitor(config, client).run_for_date(date(2026, 10, 29))
@@ -120,6 +131,7 @@ def test_monitor_can_refresh_only_the_selected_date(config):
 
 
 def test_monitor_refreshes_only_selected_leagues(config):
+    """A league selection prevents requests for other configured competitions."""
     selected_league = config.leagues[0]
     other_league = League("esp.1", "La Liga")
     client = Mock()
@@ -130,6 +142,7 @@ def test_monitor_refreshes_only_selected_leagues(config):
 
 
 def test_repeated_match_does_not_add_duplicate_change(config):
+    """Running twice with identical data does not duplicate change-log entries."""
     client = Mock()
     client.get_matches.return_value = [parse_event(event(), config.leagues[0])]
     monitor = MatchMonitor(config, client)
@@ -139,6 +152,7 @@ def test_repeated_match_does_not_add_duplicate_change(config):
 
 
 def test_json_formatter_emits_structured_fields():
+    """Custom logging fields are included in each JSON-formatted entry."""
     import logging
 
     record = logging.LogRecord("test", logging.INFO, "", 0, "started", (), None)

@@ -1,18 +1,23 @@
 name: CI
 
+# Run the same checks for both branch updates and proposed pull requests.
 on:
   push:
   pull_request:
 
 jobs:
   test:
+    # A clean Linux runner checks the project from scratch.
     runs-on: ubuntu-latest
     steps:
+      # Download source, install Python, and enable pip's dependency cache.
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
+      # Install the package and pytest test dependency.
       - run: python -m pip install -e ".[test]"
+      # Verify behavior, then ensure the offline sample command still works.
       - run: python -m pytest
       - run: python main.py --sample

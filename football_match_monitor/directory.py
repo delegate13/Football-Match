@@ -1,3 +1,5 @@
+"""ESPN clients and calculations for teams, player squads, and performance."""
+
 import json
 import logging
 import os
@@ -15,6 +17,7 @@ from football_match_monitor.models import League, MonitorConfig
 
 logger = logging.getLogger("football_match_monitor")
 _TEAM_ID = re.compile(r"^\d+$")
+# Match-leader categories we know how to display in the performance page.
 _PLAYER_STATS = {
     "goals": "Goals",
     "goalAssists": "Assists",
@@ -27,13 +30,18 @@ _PLAYER_STATS = {
 
 
 class ESPNDirectoryClient:
+    """Fetch ESPN team, roster, schedule, and match-summary data with caching."""
+
     def __init__(self, config: MonitorConfig):
+        """Store API settings and place directory caches beside scoreboard caches."""
         self._config = config
         self._cache_dir = Path(config.api_cache_dir) / "directory"
 
     def get_teams(self, league: League) -> list[dict]:
+        """Return a simplified team list for one configured league."""
         payload = self._get(league, "teams", f"{league.id}/teams", {"limit": 1000})
         try:
+            # ESPN wraps league information inside sports, then leagues.
             sports = payload["sports"]
             leagues = [item for sport in sports for item in sport.get("leagues", [])]
             entry = next(item for item in leagues if item.get("slug") == league.id)
@@ -52,6 +60,7 @@ class ESPNDirectoryClient:
         ]
 
     def get_roster(self, league: League, team_id: str) -> list[dict]:
+        """Return normalized players for a team after validating its ESPN ID."""
         team_id = self._validate_team_id(team_id)
         payload = self._get(league, f"teams/{team_id}/roster", f"{league.id}/teams/{team_id}/roster")
         athletes = payload.get("athletes")
@@ -64,6 +73,7 @@ class ESPNDirectoryClient:
         ]
 
     def get_team_schedule(self, league: League, team_id: str) -> list[dict]:
+        """Return raw schedule events used to calculate results and form."""
         team_id = self._validate_team_id(team_id)
         payload = self._get(league, f"teams/{team_id}/schedule", f"{league.id}/teams/{team_id}/schedule")
         events = payload.get("events")
@@ -72,17 +82,21 @@ class ESPNDirectoryClient:
         return [event for event in events if isinstance(event, dict)]
 
     def get_match_summary(self, league: League, event_id: str) -> dict:
+        """Load a single match summary, which may contain ESPN player leaders."""
         if not _TEAM_ID.fullmatch(event_id):
             raise ValueError("Invalid ESPN match id.")
         return self._get(league, f"events/{event_id}/summary", f"{league.id}/summary", {"event": event_id})
 
     def _get(self, league: League, resource: str, api_path: str, params: dict | None = None) -> dict:
+        """Request one ESPN resource and fall back to its saved copy on outages."""
+        # Resource names become filenames, while the configured league scopes storage.
         cache_path = self._cache_dir / league.id / f"{resource.replace('/', '_')}.json"
         url = f"{self._config.api_base_url}/{api_path}"
         if params:
             url = f"{url}?{urlencode(params)}"
         request = Request(url, headers={"User-Agent": "FootballMatchMonitor/1.0"})
         try:
+            # Use the same configured timeout as scoreboard requests.
             with urlopen(request, timeout=self._config.request_timeout_seconds) as response:
                 payload = json.loads(response.read().decode("utf-8"))
             if not isinstance(payload, dict) or not payload:
@@ -98,6 +112,7 @@ class ESPNDirectoryClient:
             return self._load_fallback(cache_path, league, resource, exc)
 
     def _save_cache(self, path: Path, league: League, resource: str, payload: dict) -> None:
+        """Write API data and identifying metadata without exposing partial files."""
         path.parent.mkdir(parents=True, exist_ok=True)
         envelope = {
             "league_id": league.id,
@@ -119,6 +134,7 @@ class ESPNDirectoryClient:
                 temporary_path.unlink()
 
     def _load_fallback(self, path: Path, league: League, resource: str, error: Exception) -> dict:
+        """Validate and return cached data, or raise a clear error with its cause."""
         if path.exists():
             try:
                 cached = json.loads(path.read_text(encoding="utf-8"))
@@ -140,6 +156,7 @@ class ESPNDirectoryClient:
 
     @staticmethod
     def _validate_team_id(team_id: str) -> str:
+        """Allow only numeric ESPN team IDs before inserting one into a URL."""
         if not isinstance(team_id, str) or not _TEAM_ID.fullmatch(team_id):
             raise ValueError("Invalid ESPN team id.")
         return team_id
@@ -152,23 +169,28 @@ def build_team_performance(
     max_concurrent_requests: int,
     as_of: date | None = None,
 ) -> dict:
+    """Calculate season totals and recent player leaders through an optional date."""
     schedule = client.get_team_schedule(league, team["id"])
+    # Only finished events involving this team can contribute to its results.
     completed = [
         event for event in schedule
         if _event_status(event) == "post"
         and _competitor_for_team(event, team["id"]) is not None
     ]
     if as_of is not None:
+        # A selected historical date excludes later games, even if they are complete.
         completed = [
             event for event in completed
             if (event_date := _event_date(event)) is not None and event_date <= as_of
         ]
     completed.sort(key=lambda event: event.get("date", ""), reverse=True)
+    # ESPN summaries are requested only for the five newest completed matches.
     recent = completed[:5]
     form = []
     scored = 0
     conceded = 0
     wins = draws = losses = 0
+    # Season totals use every eligible completed game, not just the recent five.
     for event in completed:
         own, opponent = _scores_for_team(event, team["id"])
         if own is None or opponent is None:
@@ -195,6 +217,7 @@ def build_team_performance(
             "result": "W" if own > opponent else "D" if own == opponent else "L",
         })
 
+    # Fetch recent summaries concurrently to reduce page load time.
     summaries = []
     with ThreadPoolExecutor(max_workers=max_concurrent_requests) as executor:
         results = executor.map(
@@ -221,12 +244,14 @@ def build_team_performance(
 
 
 def _summary_or_none(client, league: League, event_id: str) -> dict | None:
+    """Skip malformed ESPN event IDs rather than building an unsafe request URL."""
     if not _TEAM_ID.fullmatch(event_id):
         return None
     return client.get_match_summary(league, event_id)
 
 
 def _event_date(event: dict) -> date | None:
+    """Read the calendar portion of an ESPN timestamp, or return None if invalid."""
     try:
         return date.fromisoformat(str(event.get("date", ""))[:10])
     except ValueError:
@@ -234,6 +259,7 @@ def _event_date(event: dict) -> date | None:
 
 
 def _aggregate_player_leaders(summaries: list[dict], team_id: str) -> list[dict]:
+    """Sum supported ESPN match-leader stats per player across supplied games."""
     players = {}
     for summary in summaries:
         for team_entry in summary.get("leaders", []):
@@ -260,6 +286,7 @@ def _aggregate_player_leaders(summaries: list[dict], team_id: str) -> list[dict]
                     player["match_leader_categories"] += 1
                     value = _numeric_value(leader.get("displayValue"))
                     player["stats"][stat] = player["stats"].get(stat, 0) + value
+    # Goals and assists rank first; ties use leader appearances and then name.
     return sorted(
         players.values(),
         key=lambda player: (
@@ -272,6 +299,7 @@ def _aggregate_player_leaders(summaries: list[dict], team_id: str) -> list[dict]
 
 
 def _numeric_value(value) -> float:
+    """Convert ESPN display values such as '4' or '80%' into numbers."""
     try:
         return float(str(value).replace("%", ""))
     except (TypeError, ValueError):
@@ -279,6 +307,7 @@ def _numeric_value(value) -> float:
 
 
 def _normalize_player(player: dict) -> dict:
+    """Select the roster fields the website displays from an ESPN athlete object."""
     position = player.get("position")
     status = player.get("status")
     return {
@@ -295,6 +324,7 @@ def _normalize_player(player: dict) -> dict:
 
 
 def _logo(data: dict) -> str | None:
+    """Find a logo URL across the different shapes ESPN uses for logos."""
     if isinstance(data.get("logo"), str):
         return data["logo"]
     logos = data.get("logos")
@@ -304,12 +334,14 @@ def _logo(data: dict) -> str | None:
 
 
 def _event_status(event: dict) -> str:
+    """Extract ESPN's pre/in/post state from the first competition."""
     competition = (event.get("competitions") or [{}])[0]
     status = competition.get("status", {}).get("type", {})
     return status.get("state", "") if isinstance(status, dict) else ""
 
 
 def _competitor_for_team(event: dict, team_id: str) -> dict | None:
+    """Find this team's home/away entry inside an event."""
     competition = (event.get("competitions") or [{}])[0]
     competitors = competition.get("competitors", [])
     return next(
@@ -319,6 +351,7 @@ def _competitor_for_team(event: dict, team_id: str) -> dict | None:
 
 
 def _scores_for_team(event: dict, team_id: str) -> tuple[int | None, int | None]:
+    """Return this team's score followed by its opponent's score."""
     competition = (event.get("competitions") or [{}])[0]
     own = opponent = None
     for competitor in competition.get("competitors", []):
@@ -338,6 +371,7 @@ def _scores_for_team(event: dict, team_id: str) -> tuple[int | None, int | None]
 
 
 def _opponent_name(event: dict, team_id: str) -> str:
+    """Return the other competitor's display name, or a safe label if absent."""
     competition = (event.get("competitions") or [{}])[0]
     for competitor in competition.get("competitors", []):
         team = competitor.get("team", {})

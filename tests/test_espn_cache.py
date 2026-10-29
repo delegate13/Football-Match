@@ -1,3 +1,5 @@
+"""Tests for complete ESPN scoreboard caching and offline fallback behavior."""
+
 import json
 from datetime import date
 from io import BytesIO
@@ -19,6 +21,7 @@ LEAGUE = League("eng.1", "Premier League")
 
 @pytest.fixture
 def config(tmp_path):
+    """Load real project settings with all files redirected into a temporary folder."""
     root = Path(__file__).resolve().parents[1]
     raw = json.loads((root / "config.json").read_text(encoding="utf-8"))
     raw.update({
@@ -35,6 +38,7 @@ def config(tmp_path):
 
 
 def scoreboard():
+    """Build the small ESPN-shaped fixture payload used by the cache tests."""
     return {
         "leagues": [{"id": "700", "slug": "eng.1", "name": "English Premier League"}],
         "season": {"year": 2026},
@@ -55,10 +59,12 @@ def scoreboard():
 
 
 def response(payload):
+    """Wrap JSON bytes in an object that behaves like urlopen's response."""
     return BytesIO(json.dumps(payload).encode("utf-8"))
 
 
 def test_scoreboard_cache_preserves_full_response_and_metadata(tmp_path):
+    """Saving a scoreboard keeps the full payload and its identifying metadata."""
     cache = ScoreboardCache(str(tmp_path))
     payload = scoreboard()
     cache.save(LEAGUE, MATCH_DATE, payload)
@@ -73,6 +79,7 @@ def test_scoreboard_cache_preserves_full_response_and_metadata(tmp_path):
 
 
 def test_espn_client_caches_success_then_serves_cache_when_offline(config, monkeypatch):
+    """A successful API response is reusable when the next request is offline."""
     from football_match_monitor import espn
 
     monkeypatch.setattr(espn, "urlopen", lambda *args, **kwargs: response(scoreboard()))
@@ -82,6 +89,7 @@ def test_espn_client_caches_success_then_serves_cache_when_offline(config, monke
     assert not live_client.used_cache
 
     def offline(*args, **kwargs):
+        """Simulate a network outage after the live response has been cached."""
         raise URLError("network unavailable")
 
     monkeypatch.setattr(espn, "urlopen", offline)
@@ -92,9 +100,11 @@ def test_espn_client_caches_success_then_serves_cache_when_offline(config, monke
 
 
 def test_espn_client_without_network_or_cache_raises_clear_error(config, monkeypatch):
+    """No network and no saved response must result in an explicit API error."""
     from football_match_monitor import espn
 
     def offline(*args, **kwargs):
+        """Simulate a network outage with no earlier response to use."""
         raise URLError("network unavailable")
 
     monkeypatch.setattr(espn, "urlopen", offline)
@@ -103,6 +113,7 @@ def test_espn_client_without_network_or_cache_raises_clear_error(config, monkeyp
 
 
 def test_corrupt_local_scoreboard_cache_fails_explicitly(config, monkeypatch):
+    """Corrupt cached JSON must not be mistaken for an empty scoreboard."""
     from football_match_monitor import espn
 
     cache_file = Path(config.api_cache_dir) / "eng.1_2026-10-29.json"
@@ -110,6 +121,7 @@ def test_corrupt_local_scoreboard_cache_fails_explicitly(config, monkeypatch):
     cache_file.write_text("invalid json", encoding="utf-8")
 
     def offline(*args, **kwargs):
+        """Simulate a network outage so the corrupt cache must be checked."""
         raise URLError("network unavailable")
 
     monkeypatch.setattr(espn, "urlopen", offline)

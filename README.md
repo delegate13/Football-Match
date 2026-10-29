@@ -10,6 +10,19 @@ The project also includes **Touchline**, an original responsive football website
 - Internet access for live ESPN data
 - `pytest` to run the test suite
 
+## Code map
+
+The application is split into small files so each part has one main job:
+
+- `config.py` reads and validates settings; `models.py` defines the data shapes.
+- `espn.py` downloads and normalizes scoreboard events; `cache.py` saves those responses for offline use.
+- `directory.py` loads teams and squads and calculates performance; `filters.py` applies the configured match rules.
+- `monitor.py` coordinates requests, writes reports, and tracks changes; `report_export.py` creates CSV and PDF downloads.
+- `cli.py` runs the command-line automation; `web.py` serves the website and its API; `web_assets/` contains the browser interface.
+- `tests/` shows expected behavior with mocked network responses, so tests run without contacting ESPN.
+
+The configuration is JSON, which does not support comments; setting names and meanings are listed in the configuration table below. Python docstrings and inline comments explain the code's purpose and the less-obvious decisions.
+
 ## Run
 
 From the repository root:

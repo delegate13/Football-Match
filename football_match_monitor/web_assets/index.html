@@ -13,6 +13,7 @@
     <script src="/app.js" defer></script>
   </head>
   <body>
+    <!-- The desktop header holds the brand, page navigation, search, and refresh. -->
     <header class="topbar">
       <a class="brand" href="/" aria-label="Touchline home">
         <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
@@ -36,6 +37,7 @@
         </button>
       </div>
     </header>
+    <!-- On small screens, the same navigation moves below the top header. -->
     <nav class="mobile-nav" aria-label="Main navigation">
       <button class="nav-link active" data-view="scores" type="button">Scores</button>
       <button class="nav-link" data-view="teams" type="button">Teams</button>
@@ -44,6 +46,7 @@
     </nav>
 
     <main class="page-shell">
+      <!-- Shared heading gives every view a consistent matchday context. -->
       <section class="welcome-row">
         <div>
           <p class="eyebrow"><span class="eyebrow-dot"></span> YOUR MATCHDAY, AT A GLANCE</p>
@@ -56,6 +59,7 @@
         </div>
       </section>
 
+      <!-- Scores view: league selection on the left and date-based matches on the right. -->
       <section id="scores-view" class="view-panel">
       <section class="scoreboard-layout" id="scores">
         <aside class="sidebar">
@@ -107,6 +111,7 @@
         </section>
         </section>
 
+        <!-- Directory views start hidden; app.js shows the one selected in navigation. -->
         <section id="teams-view" class="view-panel directory-view" hidden>
           <div class="view-heading">
             <div><p class="eyebrow"><span class="eyebrow-dot"></span> CLUB DIRECTORY</p><h2>Teams</h2><p>Explore the teams competing in an ESPN league. The date sets the performance cutoff when you open a team.</p></div>
@@ -118,6 +123,7 @@
           <div id="teams-content" class="directory-grid"><div class="loading-card"><span class="spinner"></span> Loading teams...</div></div>
         </section>
 
+        <!-- Player records are ESPN's latest roster snapshot, not historical rosters. -->
         <section id="players-view" class="view-panel directory-view" hidden>
           <div class="view-heading">
             <div><p class="eyebrow"><span class="eyebrow-dot"></span> SQUAD DIRECTORY</p><h2>Players</h2><p>Browse ESPN's latest roster snapshot. The date sets the performance cutoff; historical rosters are not provided by this endpoint.</p></div>
@@ -131,6 +137,7 @@
           <div id="players-content" class="player-grid"><div class="loading-card"><span class="spinner"></span> Choose a competition to view players...</div></div>
         </section>
 
+        <!-- Performance is calculated from a team's completed schedule events. -->
         <section id="performance-view" class="view-panel directory-view" hidden>
           <div class="view-heading">
             <div><p class="eyebrow"><span class="eyebrow-dot"></span> FORM &amp; NUMBERS</p><h2>Performance</h2><p>Team results and ESPN's recent match leaders through the selected date.</p></div>
@@ -145,6 +152,7 @@
       </section>
     </main>
 
+    <!-- The version is filled from the server so it cannot drift from package code. -->
     <footer class="footer">
       <a class="footer-brand" href="/">touchline<span class="brand-period">.</span></a>
       <span>A clearer view of the beautiful game.</span>
