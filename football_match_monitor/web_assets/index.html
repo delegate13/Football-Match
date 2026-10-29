@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101923">
+    <meta name="description" content="Football fixtures, live scores and results in one place.">
+    <title>Touchline | Football, in focus</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Touchline home">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>touchline<span class="brand-period">.</span></span>
+      </a>
+      <nav class="main-nav" aria-label="Main navigation">
+        <button class="nav-link active" data-view="scores" type="button">Scores</button>
+        <button class="nav-link" data-view="teams" type="button">Teams</button>
+        <button class="nav-link" data-view="players" type="button">Players</button>
+        <button class="nav-link" data-view="performance" type="button">Performance</button>
+      </nav>
+      <div class="top-actions">
+        <label class="search-box" for="search-input">
+          <span class="search-icon" aria-hidden="true"></span>
+          <input id="search-input" type="search" placeholder="Search teams..." autocomplete="off">
+          <kbd>⌘ K</kbd>
+        </label>
+        <button id="refresh-button" class="refresh-button" type="button">
+          <span class="refresh-icon" aria-hidden="true">↻</span>
+          <span class="refresh-label">Refresh scores</span>
+        </button>
+      </div>
+    </header>
+    <nav class="mobile-nav" aria-label="Main navigation">
+      <button class="nav-link active" data-view="scores" type="button">Scores</button>
+      <button class="nav-link" data-view="teams" type="button">Teams</button>
+      <button class="nav-link" data-view="players" type="button">Players</button>
+      <button class="nav-link" data-view="performance" type="button">Performance</button>
+    </nav>
+
+    <main class="page-shell">
+      <section class="welcome-row">
+        <div>
+          <p class="eyebrow"><span class="eyebrow-dot"></span> YOUR MATCHDAY, AT A GLANCE</p>
+          <h1>Football, <span>in focus.</span></h1>
+          <p class="welcome-copy">Every fixture. Every result. One place to follow the game.</p>
+        </div>
+        <div class="today-card">
+          <span class="today-icon" aria-hidden="true">◷</span>
+          <div><span class="today-label">MATCH DATE</span><strong id="today-date">—</strong></div>
+        </div>
+      </section>
+
+      <section id="scores-view" class="view-panel">
+      <section class="scoreboard-layout" id="scores">
+        <aside class="sidebar">
+          <div class="sidebar-heading" id="leagues"><span>COMPETITIONS <span id="league-count">0 selected</span></span><button id="all-leagues" type="button">Select all</button></div>
+          <label class="league-search" for="league-search"><span aria-hidden="true">⌕</span><input id="league-search" type="search" placeholder="Find a league..." autocomplete="off"></label>
+          <div id="league-list" class="league-list">
+            <div class="skeleton league-skeleton"></div>
+            <div class="skeleton league-skeleton"></div>
+          </div>
+          <div class="sidebar-note">
+            <span class="note-icon" aria-hidden="true">✦</span>
+            <p>Scores and fixtures, powered by ESPN.</p>
+          </div>
+        </aside>
+
+        <section class="match-section" aria-label="Football fixtures and results">
+          <div class="date-strip">
+            <button id="previous-day" class="date-arrow" type="button" aria-label="Previous day">‹</button>
+            <div id="date-list" class="date-list" role="tablist" aria-label="Select match date"></div>
+            <label class="date-picker" for="date-picker"><span>Date</span><input id="date-picker" type="date" aria-label="Pick a match date"></label>
+            <button id="next-day" class="date-arrow" type="button" aria-label="Next day">›</button>
+          </div>
+          <div class="feed-toolbar">
+            <div class="feed-title-wrap">
+              <span class="feed-kicker">MATCH CENTRE</span>
+              <h2 id="feed-title">All matches</h2>
+            </div>
+            <div class="feed-actions">
+              <div class="status-tabs" role="group" aria-label="Filter by match status">
+                <button class="status-tab active" data-status="all" type="button">All</button>
+                <button class="status-tab" data-status="in" type="button"><span class="live-dot"></span> Live</button>
+                <button class="status-tab" data-status="pre" type="button">Upcoming</button>
+                <button class="status-tab" data-status="post" type="button">Results</button>
+              </div>
+              <div class="report-downloads" aria-label="Download match report">
+                <a id="download-csv" href="#" aria-disabled="true">Download CSV</a>
+                <a id="download-pdf" href="#" aria-disabled="true">Download PDF</a>
+              </div>
+            </div>
+          </div>
+          <div class="feed-meta">
+            <span id="match-count">Loading matches</span>
+            <span class="updated-label"><span class="updated-dot"></span><span id="updated-at">Connecting to your scoreboard</span></span>
+          </div>
+          <div id="match-feed" class="match-feed" aria-live="polite">
+            <div class="loading-card"><span class="spinner"></span> Loading the latest scores...</div>
+          </div>
+          <div class="data-credit">Match information provided by ESPN. Fixture availability may vary by competition.</div>
+        </section>
+        </section>
+
+        <section id="teams-view" class="view-panel directory-view" hidden>
+          <div class="view-heading">
+            <div><p class="eyebrow"><span class="eyebrow-dot"></span> CLUB DIRECTORY</p><h2>Teams</h2><p>Explore the teams competing in an ESPN league. The date sets the performance cutoff when you open a team.</p></div>
+            <div class="view-controls">
+              <label class="select-field">Competition<select id="teams-league"></select></label>
+              <label class="select-field">Performance through<input id="teams-date-picker" type="date"></label>
+            </div>
+          </div>
+          <div id="teams-content" class="directory-grid"><div class="loading-card"><span class="spinner"></span> Loading teams...</div></div>
+        </section>
+
+        <section id="players-view" class="view-panel directory-view" hidden>
+          <div class="view-heading">
+            <div><p class="eyebrow"><span class="eyebrow-dot"></span> SQUAD DIRECTORY</p><h2>Players</h2><p>Browse ESPN's latest roster snapshot. The date sets the performance cutoff; historical rosters are not provided by this endpoint.</p></div>
+            <div class="view-controls">
+              <label class="select-field">Competition<select id="players-league"></select></label>
+              <label class="select-field">Team<select id="players-team"><option value="">All teams</option></select></label>
+              <label class="select-field">Performance through<input id="players-date-picker" type="date"></label>
+            </div>
+          </div>
+          <label class="directory-search" for="player-search"><span class="search-icon" aria-hidden="true"></span><input id="player-search" type="search" placeholder="Search players, teams or positions..." autocomplete="off"></label>
+          <div id="players-content" class="player-grid"><div class="loading-card"><span class="spinner"></span> Choose a competition to view players...</div></div>
+        </section>
+
+        <section id="performance-view" class="view-panel directory-view" hidden>
+          <div class="view-heading">
+            <div><p class="eyebrow"><span class="eyebrow-dot"></span> FORM &amp; NUMBERS</p><h2>Performance</h2><p>Team results and ESPN's recent match leaders through the selected date.</p></div>
+            <div class="view-controls">
+              <label class="select-field">Competition<select id="performance-league"></select></label>
+              <label class="select-field">Team<select id="performance-team"><option value="">Select a team</option></select></label>
+              <label class="select-field">As of date<input id="performance-date-picker" type="date"></label>
+            </div>
+          </div>
+          <div id="performance-content" class="performance-content"><div class="empty-state"><span class="empty-icon">↗</span><strong>Choose a team</strong><span>Select a competition and team to explore recent results and performance.</span></div></div>
+        </section>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <a class="footer-brand" href="/">touchline<span class="brand-period">.</span></a>
+      <span>A clearer view of the beautiful game.</span>
+      <span id="app-version" class="app-version">v—</span>
+      <span class="footer-status"><span class="updated-dot"></span> SCOREBOARD ONLINE</span>
+    </footer>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

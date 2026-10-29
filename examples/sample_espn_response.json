@@ -1,0 +1,34 @@
+{
+  "events": [
+    {
+      "id": "sample-1001",
+      "name": "Arsenal at Liverpool",
+      "date": "2026-10-29T16:30Z",
+      "competitions": [
+        {
+          "competitors": [
+            { "homeAway": "home", "team": { "displayName": "Liverpool" }, "score": "2" },
+            { "homeAway": "away", "team": { "displayName": "Arsenal" }, "score": "1" }
+          ],
+          "status": { "type": { "state": "post", "detail": "Full Time" } },
+          "venue": { "fullName": "Anfield" }
+        }
+      ]
+    },
+    {
+      "id": "sample-1002",
+      "name": "Manchester City vs Chelsea",
+      "date": "2026-10-30T15:00Z",
+      "competitions": [
+        {
+          "competitors": [
+            { "homeAway": "home", "team": { "displayName": "Manchester City" }, "score": "" },
+            { "homeAway": "away", "team": { "displayName": "Chelsea" }, "score": "" }
+          ],
+          "status": { "type": { "state": "pre", "detail": "Scheduled" } },
+          "venue": { "fullName": "Etihad Stadium" }
+        }
+      ]
+    }
+  ]
+}
